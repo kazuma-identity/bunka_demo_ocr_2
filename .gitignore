@@ -141,7 +141,3 @@ temp/
 tmp/
 *.tmp
 *.temp
-
-# Test images
-test_page*.png
-test_page*.jpg
