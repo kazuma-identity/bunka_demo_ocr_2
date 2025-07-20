@@ -13,9 +13,6 @@ import os
 from pathlib import Path
 from typing import List, Dict, Any
 from dotenv import load_dotenv
-import tempfile
-import concurrent.futures
-import threading
 from io import BytesIO
 
 # Load environment variables
@@ -175,107 +172,44 @@ def main():
             page_results = {}
             progress_container = st.container()
             
-            # Check if screenshots exist
+            # Use screenshots only
             screenshot_dir = Path("data/pdf_screenshots")
-            screenshot_files = sorted(screenshot_dir.glob("page_*.png")) if screenshot_dir.exists() else []
-            use_screenshots = len(screenshot_files) > 0
+            screenshot_files = sorted(screenshot_dir.glob("page_*.png"))
             
-            # Debug info
-            st.info(f"スクリーンショットディレクトリ: {screenshot_dir.absolute()}")
-            st.info(f"スクリーンショット数: {len(screenshot_files)}")
+            if not screenshot_files:
+                st.error("スクリーンショットが見つかりません")
+                st.info("data/pdf_screenshots/page_1.png, page_2.png... としてスクリーンショットを保存してください")
+                return
             
-            if use_screenshots:
-                # Use pre-made screenshots
-                st.info("スクリーンショットを使用します...")
-                progress_bar = st.progress(0, text="スクリーンショットを読み込み中...")
+            st.info("スクリーンショットを使用します...")
+            progress_bar = st.progress(0, text="スクリーンショットを読み込み中...")
+            
+            total_pages = len(screenshot_files)
+            
+            # Extract text from PDF using pdfplumber
+            page_texts = []
+            with pdfplumber.open(str(pdf_file)) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text()
+                    page_texts.append(text)
+            
+            # Prepare page data with screenshots
+            page_data = []
+            for i, (screenshot_file, text) in enumerate(zip(screenshot_files, page_texts)):
+                page_num = i + 1
+                progress_bar.progress(page_num / total_pages, text=f"ページ {page_num}/{total_pages} を準備中...")
                 
-                # Screenshot files are already retrieved above
-                total_pages = len(screenshot_files)
+                # Read screenshot
+                with open(screenshot_file, 'rb') as f:
+                    img_buffer = BytesIO(f.read())
+                    img_buffer.seek(0)
                 
-                # Extract text from PDF using pdfplumber
-                page_texts = []
-                with pdfplumber.open(str(pdf_file)) as pdf:
-                    for page in pdf.pages:
-                        text = page.extract_text()
-                        page_texts.append(text)
-                
-                # Prepare page data with screenshots
-                page_data = []
-                for i, (screenshot_file, text) in enumerate(zip(screenshot_files, page_texts)):
-                    page_num = i + 1
-                    progress_bar.progress(page_num / total_pages, text=f"ページ {page_num}/{total_pages} を準備中...")
-                    
-                    # Read screenshot
-                    with open(screenshot_file, 'rb') as f:
-                        img_buffer = BytesIO(f.read())
-                        img_buffer.seek(0)
-                    
-                    page_data.append({
-                        'page_num': page_num,
-                        'image_buffer': img_buffer,  # Screenshot buffer
-                        'text': text,
-                        'has_fixtures': '建具表' in text or '記号' in text if text else False
-                    })
-            else:
-                # Fallback to pdf2image conversion
-                st.warning("スクリーンショットが見つかりません。pdf2imageで変換します...")
-                progress_bar = st.progress(0, text="PDFをPNG画像に変換中...")
-                
-                try:
-                    from pdf2image import convert_from_path
-                    
-                    # Convert with optimized settings
-                    png_images = convert_from_path(
-                        pdf_path=str(pdf_file), 
-                        dpi=200,
-                        fmt='png',
-                        thread_count=1,
-                        use_pdftocairo=False,
-                        strict=False
-                    )
-                    
-                    total_pages = len(png_images)
-                    
-                    # Save PNG images in memory
-                    png_buffers = []
-                    for i, img in enumerate(png_images):
-                        progress_bar.progress((i + 1) / total_pages, text=f"PNG画像を保存中... {i + 1}/{total_pages}")
-                        buffer = BytesIO()
-                        img.save(buffer, format='PNG', optimize=True, quality=95)
-                        buffer.seek(0)
-                        png_buffers.append(buffer)
-                    
-                    # Extract text from PDF
-                    page_texts = []
-                    with pdfplumber.open(str(pdf_file)) as pdf:
-                        for page in pdf.pages:
-                            text = page.extract_text()
-                            page_texts.append(text)
-                    
-                    # Prepare page data
-                    page_data = []
-                    for page_num, (png_buffer, text) in enumerate(zip(png_buffers, page_texts), 1):
-                        page_data.append({
-                            'page_num': page_num,
-                            'image_buffer': png_buffer,
-                            'text': text,
-                            'has_fixtures': '建具表' in text or '記号' in text if text else False
-                        })
-                    
-                except ImportError as e:
-                    st.error("pdf2imageがインストールされていません")
-                    st.info("以下のコマンドでインストールしてください: pip install pdf2image")
-                    st.info("または、data/pdf_screenshots/page_1.png, page_2.png... としてスクリーンショットを保存してください")
-                    return
-                except Exception as e:
-                    st.error(f"PDF変換エラー: {e}")
-                    if "poppler" in str(e).lower():
-                        st.error("popplerがインストールされていません")
-                        st.info("Ubuntu/Debian: sudo apt-get install poppler-utils")
-                        st.info("macOS: brew install poppler")
-                        st.info("Windows: popplerをダウンロードしてPATHに追加してください")
-                    st.info("代替方法: data/pdf_screenshots/page_1.png, page_2.png... としてスクリーンショットを保存してください")
-                    return
+                page_data.append({
+                    'page_num': page_num,
+                    'image_buffer': img_buffer,
+                    'text': text,
+                    'has_fixtures': '建具表' in text or '記号' in text if text else False
+                })
             
             # Display page images first
             with progress_container:
@@ -309,65 +243,40 @@ def main():
                     
                     st.divider()
             
-            # Process pages with Gemini API in parallel
+            # Process pages sequentially
             progress_bar.progress(0, text="建具情報を抽出中...")
             
             # Process pages with fixtures
             pages_with_fixtures = [p for p in page_data if p['has_fixtures']]
             total_to_process = len(pages_with_fixtures)
             
-            # First, send all requests to Gemini in parallel
-            with st.spinner(f"Gemini APIに{total_to_process}ページ分のリクエストを送信中..."):
-                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-                    # Submit all extraction tasks
-                    future_to_page = {}
-                    for page_info in pages_with_fixtures:
-                        future = executor.submit(parser.extract_with_gemini, page_info['text'])
-                        future_to_page[future] = page_info['page_num']
-                    
-                    # Collect results as they complete
-                    api_results = {}
-                    completed = 0
-                    
-                    for future in concurrent.futures.as_completed(future_to_page):
-                        page_num = future_to_page[future]
-                        try:
-                            result = future.result()
-                            api_results[page_num] = result
-                        except Exception as e:
-                            api_results[page_num] = {'error': str(e)}
-                        
-                        completed += 1
-                        progress_bar.progress(completed / total_to_process, 
-                                            text=f"API処理完了: {completed}/{total_to_process} ページ")
-            
-            # Then update UI sequentially
-            st.info("UI を更新中...")
-            for page_info in pages_with_fixtures:
+            for idx, page_info in enumerate(pages_with_fixtures):
                 page_num = page_info['page_num']
                 
-                # Get the result from API calls
-                result = api_results.get(page_num, None)
+                # Update progress
+                progress_bar.progress((idx + 1) / total_to_process, 
+                                    text=f"処理中: {idx + 1}/{total_to_process} ページ")
                 
-                # Update the placeholder with results
+                # Extract with Gemini
                 with page_containers[page_num]:
-                    # Clear the waiting message
                     page_containers[page_num].empty()
-                    
-                    if isinstance(result, dict) and 'error' in result:
-                        st.error(f"エラー: {result['error']}")
-                    elif result:
-                        # Display extracted data
-                        fixtures = result
-                        page_results[page_num] = fixtures
-                        all_fixtures.extend(fixtures)
-                        
-                        for i, fixture in enumerate(fixtures):
-                            with st.expander(f"建具 {i+1}: {fixture.get('記号', 'N/A')}", expanded=False):
-                                for key, value in fixture.items():
-                                    st.text(f"{key}: {value}")
-                    else:
-                        st.warning("建具情報が見つかりませんでした")
+                    with st.spinner("Gemini APIで処理中..."):
+                        try:
+                            fixtures = parser.extract_with_gemini(page_info['text'])
+                            
+                            if fixtures:
+                                page_results[page_num] = fixtures
+                                all_fixtures.extend(fixtures)
+                                
+                                for i, fixture in enumerate(fixtures):
+                                    with st.expander(f"建具 {i+1}: {fixture.get('記号', 'N/A')}", expanded=False):
+                                        for key, value in fixture.items():
+                                            st.text(f"{key}: {value}")
+                            else:
+                                st.warning("建具情報が見つかりませんでした")
+                                
+                        except Exception as e:
+                            st.error(f"エラー: {e}")
             
             # Clean results
             all_fixtures = parser.validate_and_clean(all_fixtures)

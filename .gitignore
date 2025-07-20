@@ -134,7 +134,6 @@ dmypy.json
 output/
 csv_output/
 text_output/
-data/pdf_screenshots/
 
 # Temporary files
 temp/
