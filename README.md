@@ -33,13 +33,26 @@ PDFの画像変換にはpoppler-utilsが必要です：
 
 ```bash
 # Ubuntu/Debian
+sudo apt-get update
 sudo apt-get install poppler-utils
 
 # macOS
 brew install poppler
 
 # Windows
-# popplerをダウンロードしてPATHに追加
+# 1. https://github.com/oschwartz10612/poppler-windows/releases/ から最新版をダウンロード
+# 2. 解凍してC:\poppler などに配置
+# 3. C:\poppler\Library\bin をシステムのPATHに追加
+# 4. コマンドプロンプトを再起動
+
+# WSL (Windows Subsystem for Linux)
+sudo apt-get update
+sudo apt-get install poppler-utils
+```
+
+インストール確認：
+```bash
+pdftoppm -v
 ```
 
 ### 3. 環境変数の設定

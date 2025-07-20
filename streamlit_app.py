@@ -177,15 +177,19 @@ def main():
             
             # Check if screenshots exist
             screenshot_dir = Path("data/pdf_screenshots")
-            use_screenshots = screenshot_dir.exists() and len(list(screenshot_dir.glob("page_*.png"))) > 0
+            screenshot_files = sorted(screenshot_dir.glob("page_*.png")) if screenshot_dir.exists() else []
+            use_screenshots = len(screenshot_files) > 0
+            
+            # Debug info
+            st.info(f"スクリーンショットディレクトリ: {screenshot_dir.absolute()}")
+            st.info(f"スクリーンショット数: {len(screenshot_files)}")
             
             if use_screenshots:
                 # Use pre-made screenshots
                 st.info("スクリーンショットを使用します...")
                 progress_bar = st.progress(0, text="スクリーンショットを読み込み中...")
                 
-                # Get all screenshot files
-                screenshot_files = sorted(screenshot_dir.glob("page_*.png"))
+                # Screenshot files are already retrieved above
                 total_pages = len(screenshot_files)
                 
                 # Extract text from PDF using pdfplumber
@@ -258,9 +262,19 @@ def main():
                             'has_fixtures': '建具表' in text or '記号' in text if text else False
                         })
                     
+                except ImportError as e:
+                    st.error("pdf2imageがインストールされていません")
+                    st.info("以下のコマンドでインストールしてください: pip install pdf2image")
+                    st.info("または、data/pdf_screenshots/page_1.png, page_2.png... としてスクリーンショットを保存してください")
+                    return
                 except Exception as e:
                     st.error(f"PDF変換エラー: {e}")
-                    st.info("data/pdf_screenshots/page_1.png, page_2.png... としてスクリーンショットを保存してください")
+                    if "poppler" in str(e).lower():
+                        st.error("popplerがインストールされていません")
+                        st.info("Ubuntu/Debian: sudo apt-get install poppler-utils")
+                        st.info("macOS: brew install poppler")
+                        st.info("Windows: popplerをダウンロードしてPATHに追加してください")
+                    st.info("代替方法: data/pdf_screenshots/page_1.png, page_2.png... としてスクリーンショットを保存してください")
                     return
             
             # Display page images first
