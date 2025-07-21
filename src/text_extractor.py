@@ -66,7 +66,7 @@ def save_text_to_file(text_content, output_dir):
 def main():
     """Main extraction process"""
     pdf_path = "data/image.pdf"
-    output_dir = "text_output"
+    output_dir = "text_output_1"
 
     if not os.path.exists(pdf_path):
         print(f"PDF file not found: {pdf_path}")
